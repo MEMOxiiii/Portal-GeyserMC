@@ -1,0 +1,13 @@
+proxy-address: "127.0.0.1"
+socket:
+  port: 19131
+  secret: ""
+server:
+  name: "Hub1"
+  address: ""
+command:
+  enable: true
+  commands:
+    transfer: true
+    server: true
+    servers: true
