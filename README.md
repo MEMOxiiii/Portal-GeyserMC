@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/MEMOxiiii/Portal-Geyser/releases"><img src="https://img.shields.io/github/v/release/MEMOxiiii/Portal-Geyser?style=flat-square&color=%2300b894" alt="Release"></a>
-  <a href="https://github.com/MEMOxiiii/Portal-Geyser/blob/main/LICENSE"><img src="https://img.shields.io/github/license/MEMOxiiii/Portal-Geyser?style=flat-square&color=%230984e3" alt="License"></a>
+  <a href="https://github.com/MEMOxiiii/Portal-Geyser/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-0984e3?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/Java-17+-e17055?style=flat-square&logo=openjdk&logoColor=white" alt="Java 17+">
   <img src="https://img.shields.io/badge/Geyser_API-2.9.5-6c5ce7?style=flat-square" alt="Geyser API 2.9.5">
 </p>
