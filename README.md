@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/GeyserMC/Geyser/master/docs/geyser_text.png" height="80" alt="GeyserMC"/>
+  <img src="https://geysermc.org/img/geyser-1760-860.png" height="80" alt="GeyserMC"/>
   <br/>
   <strong>Portal-GeyserMC</strong>
 </p>
