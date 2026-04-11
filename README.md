@@ -200,25 +200,6 @@ Portal-GeyserMC/
     └── config.yml                 # Default config template
 ```
 
-## Network Architecture
-
-```
-┌─────────────┐     ┌─────────────┐     ┌──────────────────┐
-│  Dragonfly   │────▶│             │◀────│  PocketMine-MP   │
-│  (PortalDF)  │     │   Portal    │     │   (PortalPM)     │
-└─────────────┘     │   Proxy     │     └──────────────────┘
-                    │             │
-┌─────────────┐     │  :19131     │
-│  GeyserMC   │────▶│  (socket)   │
-│  (this ext) │     │             │
-└─────────────┘     └──────┬──────┘
-                           │
-                    ┌──────▼──────┐
-                    │   Bedrock   │
-                    │   Players   │
-                    └─────────────┘
-```
-
 ## Related Projects
 
 | Project | Description |
