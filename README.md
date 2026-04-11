@@ -223,7 +223,7 @@ Portal-GeyserMC/
 
 | Project | Description |
 |:---|:---|
-| [Portal](https://github.com/paroxity/portal) | The Go-based proxy that powers the network |
+| [Portal](https://github.com/MEMOxiiii/portal) | The Go-based proxy that powers the network |
 | [PortalDF](https://github.com/MEMOxiiii/PortalDF) | Portal client library for Dragonfly servers |
 | [PortalPM](https://github.com/MEMOxiiii/PortalPM) | Portal plugin for PocketMine-MP servers |
 
