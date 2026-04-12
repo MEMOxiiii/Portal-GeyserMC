@@ -216,21 +216,45 @@ public class PortalClient {
     private void handleDisconnectPlayer(DisconnectPlayerPacket pk) {
         String playerName = pk.getPlayerName();
         logger.info("Disconnecting stale session for player: " + playerName);
+
+        boolean found = false;
+
+        // 1. Try GeyserMC API — disconnect the Bedrock session if it still exists.
         try {
             for (var conn : org.geysermc.geyser.api.GeyserApi.api().onlineConnections()) {
                 if (conn.name().equalsIgnoreCase(playerName)) {
-                    // Use reflection to call disconnect() on the underlying GeyserSession.
-                    // GeyserConnection objects are GeyserSession instances at runtime which
-                    // have a disconnect(String) method not exposed in the public API.
                     conn.getClass().getMethod("disconnect", String.class)
                             .invoke(conn, "Reconnecting...");
-                    logger.info("Disconnected stale session for " + playerName);
-                    return;
+                    logger.info("Disconnected stale Geyser session for " + playerName);
+                    found = true;
+                    break;
                 }
             }
-            logger.fine("No stale session found for " + playerName);
         } catch (Exception e) {
-            logger.warning("Failed to disconnect stale session for " + playerName + ": " + e.getMessage());
+            logger.warning("Error checking Geyser sessions for " + playerName + ": " + e.getMessage());
+        }
+
+        // 2. Try Bukkit API — kick from Spigot in case the stale session is at the Java level.
+        // This is the most common case: GeyserMC cleaned up the Bedrock session but Spigot
+        // still has the player object, causing "already logged in" on the next connection.
+        try {
+            Class<?> bukkitClass = Class.forName("org.bukkit.Bukkit");
+            Object player = bukkitClass.getMethod("getPlayerExact", String.class)
+                    .invoke(null, playerName);
+            if (player != null) {
+                player.getClass().getMethod("kickPlayer", String.class)
+                        .invoke(player, "Reconnecting...");
+                logger.info("Kicked stale Spigot session for " + playerName);
+                found = true;
+            }
+        } catch (ClassNotFoundException e) {
+            // Not running on Bukkit/Spigot — skip
+        } catch (Exception e) {
+            logger.warning("Error kicking from Spigot for " + playerName + ": " + e.getMessage());
+        }
+
+        if (!found) {
+            logger.info("No stale session found for " + playerName);
         }
     }
 
