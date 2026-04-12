@@ -217,8 +217,6 @@ public class PortalClient {
         String playerName = pk.getPlayerName();
         logger.info("Disconnecting stale session for player: " + playerName);
 
-        boolean found = false;
-
         // 1. Try GeyserMC API — disconnect the Bedrock session if it still exists.
         try {
             for (var conn : org.geysermc.geyser.api.GeyserApi.api().onlineConnections()) {
@@ -226,7 +224,6 @@ public class PortalClient {
                     conn.getClass().getMethod("disconnect", String.class)
                             .invoke(conn, "Reconnecting...");
                     logger.info("Disconnected stale Geyser session for " + playerName);
-                    found = true;
                     break;
                 }
             }
@@ -234,27 +231,45 @@ public class PortalClient {
             logger.warning("Error checking Geyser sessions for " + playerName + ": " + e.getMessage());
         }
 
-        // 2. Try Bukkit API — kick from Spigot in case the stale session is at the Java level.
-        // This is the most common case: GeyserMC cleaned up the Bedrock session but Spigot
-        // still has the player object, causing "already logged in" on the next connection.
+        // 2. Try Bukkit API — kick from Spigot on the MAIN SERVER THREAD.
+        // Spigot's AsyncCatcher blocks kickPlayer() from non-main threads, so we must
+        // use the Bukkit scheduler to run the kick on the next server tick.
         try {
             Class<?> bukkitClass = Class.forName("org.bukkit.Bukkit");
-            Object player = bukkitClass.getMethod("getPlayerExact", String.class)
-                    .invoke(null, playerName);
-            if (player != null) {
-                player.getClass().getMethod("kickPlayer", String.class)
-                        .invoke(player, "Reconnecting...");
-                logger.info("Kicked stale Spigot session for " + playerName);
-                found = true;
+            Object pluginManager = bukkitClass.getMethod("getPluginManager").invoke(null);
+            Object geyserPlugin = pluginManager.getClass().getMethod("getPlugin", String.class)
+                    .invoke(pluginManager, "Geyser-Spigot");
+
+            if (geyserPlugin != null) {
+                Object scheduler = bukkitClass.getMethod("getScheduler").invoke(null);
+                Class<?> pluginInterface = Class.forName("org.bukkit.plugin.Plugin");
+
+                Runnable kickTask = () -> {
+                    try {
+                        Class<?> bk = Class.forName("org.bukkit.Bukkit");
+                        Object player = bk.getMethod("getPlayerExact", String.class)
+                                .invoke(null, playerName);
+                        if (player != null) {
+                            player.getClass().getMethod("kickPlayer", String.class)
+                                    .invoke(player, "Reconnecting...");
+                            logger.info("Kicked stale Spigot session for " + playerName);
+                        } else {
+                            logger.info("No Spigot player found for " + playerName);
+                        }
+                    } catch (Exception e) {
+                        logger.warning("Error kicking " + playerName + " from Spigot: " + e.getMessage());
+                    }
+                };
+
+                scheduler.getClass().getMethod("runTask", pluginInterface, Runnable.class)
+                        .invoke(scheduler, geyserPlugin, kickTask);
+            } else {
+                logger.info("Geyser-Spigot plugin not found, cannot schedule kick");
             }
         } catch (ClassNotFoundException e) {
             // Not running on Bukkit/Spigot — skip
         } catch (Exception e) {
-            logger.warning("Error kicking from Spigot for " + playerName + ": " + e.getMessage());
-        }
-
-        if (!found) {
-            logger.info("No stale session found for " + playerName);
+            logger.warning("Error scheduling Bukkit kick for " + playerName + ": " + e.getMessage());
         }
     }
 
