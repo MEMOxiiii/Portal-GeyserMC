@@ -18,6 +18,7 @@ public final class ProtocolInfo {
     public static final int FIND_PLAYER_REQUEST = 0x09;
     public static final int FIND_PLAYER_RESPONSE = 0x0A;
     public static final int UPDATE_PLAYER_LATENCY = 0x0B;
+    public static final int DISCONNECT_PLAYER = 0x0C;
 
     // Auth response statuses
     public static final byte AUTH_SUCCESS = 0;

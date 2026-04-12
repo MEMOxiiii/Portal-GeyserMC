@@ -23,6 +23,7 @@ public final class PacketPool {
         register(ProtocolInfo.FIND_PLAYER_REQUEST, FindPlayerRequestPacket::new);
         register(ProtocolInfo.FIND_PLAYER_RESPONSE, FindPlayerResponsePacket::new);
         register(ProtocolInfo.UPDATE_PLAYER_LATENCY, UpdatePlayerLatencyPacket::new);
+        register(ProtocolInfo.DISCONNECT_PLAYER, DisconnectPlayerPacket::new);
     }
 
     private static void register(int id, Supplier<Packet> supplier) {

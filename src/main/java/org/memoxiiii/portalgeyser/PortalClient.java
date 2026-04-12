@@ -122,6 +122,8 @@ public class PortalClient {
             handleFindPlayerResponse(pk);
         } else if (packet instanceof UpdatePlayerLatencyPacket pk) {
             handleUpdatePlayerLatency(pk);
+        } else if (packet instanceof DisconnectPlayerPacket pk) {
+            handleDisconnectPlayer(pk);
         }
     }
 
@@ -208,6 +210,27 @@ public class PortalClient {
         LatencyHandler handler = latencyHandler;
         if (handler != null) {
             handler.onLatencyUpdate(pk.getPlayerUUID(), pk.getLatency());
+        }
+    }
+
+    private void handleDisconnectPlayer(DisconnectPlayerPacket pk) {
+        String playerName = pk.getPlayerName();
+        logger.info("Disconnecting stale session for player: " + playerName);
+        try {
+            for (var conn : org.geysermc.geyser.api.GeyserApi.api().onlineConnections()) {
+                if (conn.name().equalsIgnoreCase(playerName)) {
+                    // Use reflection to call disconnect() on the underlying GeyserSession.
+                    // GeyserConnection objects are GeyserSession instances at runtime which
+                    // have a disconnect(String) method not exposed in the public API.
+                    conn.getClass().getMethod("disconnect", String.class)
+                            .invoke(conn, "Reconnecting...");
+                    logger.info("Disconnected stale session for " + playerName);
+                    return;
+                }
+            }
+            logger.fine("No stale session found for " + playerName);
+        } catch (Exception e) {
+            logger.warning("Failed to disconnect stale session for " + playerName + ": " + e.getMessage());
         }
     }
 
