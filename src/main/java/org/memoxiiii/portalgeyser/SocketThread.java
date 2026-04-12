@@ -7,14 +7,13 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
  * Background thread managing the TCP socket connection to the Portal proxy.
- * Handles connecting, reconnecting, sending packets, and reading responses.
+ * Uses blocking reads for zero-latency packet dispatch and direct synchronized writes.
  */
 public class SocketThread extends Thread {
     private final String host;
@@ -22,40 +21,49 @@ public class SocketThread extends Thread {
     private final String secret;
     private final String serverName;
     private final Logger logger;
+    private final Consumer<byte[]> packetHandler;
+    private final Runnable disconnectHandler;
 
-    private final BlockingQueue<byte[]> sendQueue = new LinkedBlockingQueue<>();
-    private final BlockingQueue<byte[]> receiveQueue = new LinkedBlockingQueue<>();
-
+    private volatile Socket currentSocket;
+    private volatile DataOutputStream dos;
+    private final Object writeLock = new Object();
     private volatile boolean running = true;
 
-    public SocketThread(String host, int port, String secret, String serverName, Logger logger) {
+    public SocketThread(String host, int port, String secret, String serverName,
+                        Logger logger, Consumer<byte[]> packetHandler, Runnable disconnectHandler) {
         super("Portal-SocketThread");
         this.host = host;
         this.port = port;
         this.secret = secret;
         this.serverName = serverName;
         this.logger = logger;
+        this.packetHandler = packetHandler;
+        this.disconnectHandler = disconnectHandler;
         this.setDaemon(true);
     }
 
     @Override
     public void run() {
+        int backoff = 1000;
         while (running) {
             try {
                 connectAndProcess();
+                backoff = 1000;
             } catch (Exception e) {
                 if (running) {
-                    logger.log(Level.WARNING, "Portal socket connection error: " + e.getMessage());
+                    logger.log(Level.WARNING, "Portal socket error: " + e.getMessage());
                 }
             }
 
+            disconnectHandler.run();
             if (!running) break;
 
             try {
-                Thread.sleep(5000);
+                Thread.sleep(backoff);
             } catch (InterruptedException e) {
                 break;
             }
+            backoff = Math.min(backoff * 2, 10000);
             if (running) {
                 logger.info("Reconnecting to Portal proxy...");
             }
@@ -68,60 +76,78 @@ public class SocketThread extends Thread {
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(host, port), 10000);
             socket.setTcpNoDelay(true);
+            socket.setKeepAlive(true);
 
-            DataInputStream dis = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
-            DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
+            this.currentSocket = socket;
+            DataInputStream dis = new DataInputStream(new BufferedInputStream(socket.getInputStream(), 8192));
+            DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream(), 8192));
+            this.dos = out;
 
-            // Send authentication request
+            logger.info("Connected to Portal proxy");
+
+            // Send auth directly — no queue needed, we're in the socket thread
             AuthRequestPacket auth = new AuthRequestPacket(ProtocolInfo.PROTOCOL_VERSION, secret, serverName);
-            sendPacketDirect(dos, auth);
+            sendPacketInternal(out, auth);
 
-            // Set socket read timeout for non-blocking behavior
-            socket.setSoTimeout(50);
-
+            // Blocking read loop — packets dispatched immediately with zero latency
             while (running && !socket.isClosed()) {
-                // Send queued packets
-                byte[] data;
-                while ((data = sendQueue.poll()) != null) {
-                    writeFrame(dos, data);
-                }
-                dos.flush();
-
-                // Try reading packets
-                try {
-                    byte[] received = readFrame(dis);
-                    if (received != null) {
-                        receiveQueue.offer(received);
+                byte[] frame = readFrame(dis);
+                if (frame != null) {
+                    try {
+                        packetHandler.accept(frame);
+                    } catch (Exception e) {
+                        logger.warning("Error processing Portal packet: " + e.getMessage());
                     }
-                } catch (java.net.SocketTimeoutException ignored) {
-                    // No data available - continue loop
-                } catch (EOFException e) {
-                    logger.warning("Portal proxy connection closed");
-                    return;
+                }
+            }
+        } catch (EOFException e) {
+            if (running) {
+                logger.warning("Portal proxy connection closed");
+            }
+        } finally {
+            this.dos = null;
+            this.currentSocket = null;
+        }
+    }
+
+    /**
+     * Sends a packet immediately to the proxy. Thread-safe — can be called from any thread.
+     */
+    public void sendPacket(Packet packet) {
+        PacketBuffer buf = PacketBuffer.writer();
+        buf.writeUint16(packet.getId());
+        packet.encode(buf);
+        byte[] data = buf.toByteArray();
+
+        synchronized (writeLock) {
+            DataOutputStream out = this.dos;
+            if (out != null) {
+                try {
+                    writeFrame(out, data);
+                    out.flush();
+                } catch (IOException e) {
+                    logger.warning("Error sending Portal packet: " + e.getMessage());
+                    closeSocket();
                 }
             }
         }
     }
 
-    private void sendPacketDirect(DataOutputStream dos, Packet packet) throws IOException {
+    private void sendPacketInternal(DataOutputStream out, Packet packet) throws IOException {
         PacketBuffer buf = PacketBuffer.writer();
-        // Write 2-byte LE packet ID header
         buf.writeUint16(packet.getId());
         packet.encode(buf);
-        byte[] payload = buf.toByteArray();
-        writeFrame(dos, payload);
-        dos.flush();
+        writeFrame(out, buf.toByteArray());
+        out.flush();
     }
 
     private void writeFrame(DataOutputStream dos, byte[] data) throws IOException {
-        // 4-byte LE length prefix
         byte[] lengthBytes = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(data.length).array();
         dos.write(lengthBytes);
         dos.write(data);
     }
 
     private byte[] readFrame(DataInputStream dis) throws IOException {
-        // Read 4-byte LE length
         byte[] lengthBytes = new byte[4];
         dis.readFully(lengthBytes);
         int length = ByteBuffer.wrap(lengthBytes).order(ByteOrder.LITTLE_ENDIAN).getInt();
@@ -135,25 +161,16 @@ public class SocketThread extends Thread {
         return data;
     }
 
-    /**
-     * Queues an encoded packet for sending to the proxy.
-     */
-    public void addPacketToQueue(Packet packet) {
-        PacketBuffer buf = PacketBuffer.writer();
-        buf.writeUint16(packet.getId());
-        packet.encode(buf);
-        sendQueue.offer(buf.toByteArray());
-    }
-
-    /**
-     * Polls the next received packet data, or null if none available.
-     */
-    public byte[] pollReceived() {
-        return receiveQueue.poll();
+    private void closeSocket() {
+        Socket s = currentSocket;
+        if (s != null) {
+            try { s.close(); } catch (IOException ignored) {}
+        }
     }
 
     public void shutdown() {
         running = false;
+        closeSocket();
         this.interrupt();
     }
 }

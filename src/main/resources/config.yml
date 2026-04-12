@@ -5,6 +5,7 @@ socket:
 server:
   name: "Hub1"
   address: ""
+  warmup-delay: 5
 command:
   enable: true
   commands:

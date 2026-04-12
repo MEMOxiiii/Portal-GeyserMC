@@ -16,31 +16,24 @@ import org.memoxiiii.portalgeyser.command.ServersCommand;
 import org.memoxiiii.portalgeyser.command.TransferCommand;
 
 import java.util.UUID;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Portal-GeyserMC Extension — Connects GeyserMC servers to a Portal proxy.
- * Equivalent of PortalPM for PocketMine-MP servers.
+ * Zero-latency packet dispatch for fast transfers and responsive commands.
  */
 public class PortalExtension implements Extension {
 
     private PortalConfig config;
     private PortalClient client;
-    private ScheduledExecutorService tickExecutor;
 
     @Subscribe
     public void onPreInitialize(GeyserPreInitializeEvent event) {
-        // Load config before commands are defined
         config = PortalConfig.load(this.dataFolder());
         logger().info("Portal config loaded: server=" + config.getServerName());
 
-        // Create the client early so commands can reference it.
-        // We don't connect yet — that happens in onPostInitialize.
         String serverAddress = config.getServerAddress();
         if (serverAddress == null || serverAddress.isEmpty()) {
-            serverAddress = ""; // Will be resolved in onPostInitialize
+            serverAddress = "";
         }
 
         client = new PortalClient(
@@ -62,23 +55,15 @@ public class PortalExtension implements Extension {
             client.setServerAddress(serverAddress);
         }
 
-        // Connect to the proxy
+        // Set warmup delay so GeyserMC is fully ready before accepting transfers
+        int warmupSeconds = config.getWarmupDelay();
+        if (warmupSeconds > 0) {
+            client.setWarmupDelay(warmupSeconds * 1000);
+        }
+
+        // Connect to the proxy — packets are dispatched immediately via blocking reads
         client.connect(config.getProxyAddress(), config.getSocketPort(), config.getSecret());
         logger().info("Connecting to Portal proxy at " + config.getProxyAddress() + ":" + config.getSocketPort());
-
-        // Start a tick loop to process incoming packets
-        tickExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "Portal-TickThread");
-            t.setDaemon(true);
-            return t;
-        });
-        tickExecutor.scheduleAtFixedRate(() -> {
-            try {
-                client.tick();
-            } catch (Exception e) {
-                logger().warning("Error in Portal tick: " + e.getMessage());
-            }
-        }, 50, 50, TimeUnit.MILLISECONDS);
     }
 
     @Subscribe
@@ -116,9 +101,6 @@ public class PortalExtension implements Extension {
 
     @Subscribe
     public void onShutdown(GeyserShutdownEvent event) {
-        if (tickExecutor != null) {
-            tickExecutor.shutdown();
-        }
         if (client != null) {
             client.shutdown();
         }

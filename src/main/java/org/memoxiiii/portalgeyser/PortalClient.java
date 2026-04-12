@@ -6,13 +6,12 @@ import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.function.BiConsumer;
-import java.util.function.Consumer;
 import java.util.logging.Logger;
 
 /**
  * Core Portal proxy client. Manages the socket thread and provides high-level
  * API methods for transferring players, querying server lists, finding players, etc.
+ * Packets are processed immediately on receipt with zero-latency dispatch.
  */
 public class PortalClient {
 
@@ -47,6 +46,8 @@ public class PortalClient {
 
     private SocketThread socketThread;
     private volatile boolean connected = false;
+    private volatile boolean everRegistered = false;
+    private int warmupDelayMs = 0;
 
     private final Map<UUID, TransferCallback> transferCallbacks = new ConcurrentHashMap<>();
     private final Map<UUID, PlayerInfoCallback> playerInfoCallbacks = new ConcurrentHashMap<>();
@@ -70,42 +71,42 @@ public class PortalClient {
     }
 
     /**
-     * Starts the socket thread and begins connecting to the proxy.
+     * Sets the warmup delay in milliseconds before registering with the proxy.
+     * Only applies to the first connection after startup.
      */
-    public void connect(String host, int port, String secret) {
-        socketThread = new SocketThread(host, port, secret, serverName, logger);
-        socketThread.start();
+    public void setWarmupDelay(int warmupDelayMs) {
+        this.warmupDelayMs = warmupDelayMs;
     }
 
     /**
-     * Must be called periodically (e.g. from a scheduled task) to process
-     * incoming packets from the socket thread.
+     * Starts the socket thread with blocking reads and immediate packet dispatch.
      */
-    public void tick() {
-        if (socketThread == null) return;
-
-        byte[] data;
-        while ((data = socketThread.pollReceived()) != null) {
-            try {
-                handleRawPacket(data);
-            } catch (Exception e) {
-                logger.warning("Error processing Portal packet: " + e.getMessage());
-            }
-        }
+    public void connect(String host, int port, String secret) {
+        socketThread = new SocketThread(host, port, secret, serverName, logger,
+                this::handleRawPacket, this::onDisconnected);
+        socketThread.start();
     }
 
-    private void handleRawPacket(byte[] data) throws IOException {
-        PacketBuffer buf = PacketBuffer.reader(data);
-        int packetId = buf.readUint16();
+    private void onDisconnected() {
+        connected = false;
+    }
 
-        Packet packet = PacketPool.createPacket(packetId);
-        if (packet == null) {
-            logger.warning("Received unknown Portal packet ID: 0x" + Integer.toHexString(packetId));
-            return;
+    private void handleRawPacket(byte[] data) {
+        try {
+            PacketBuffer buf = PacketBuffer.reader(data);
+            int packetId = buf.readUint16();
+
+            Packet packet = PacketPool.createPacket(packetId);
+            if (packet == null) {
+                logger.warning("Received unknown Portal packet ID: 0x" + Integer.toHexString(packetId));
+                return;
+            }
+
+            packet.decode(buf);
+            handlePacket(packet);
+        } catch (IOException e) {
+            logger.warning("Error decoding Portal packet: " + e.getMessage());
         }
-
-        packet.decode(buf);
-        handlePacket(packet);
     }
 
     private void handlePacket(Packet packet) {
@@ -141,8 +142,29 @@ public class PortalClient {
         logger.info("Authenticated with Portal proxy");
         connected = true;
 
-        // Register our server address with the proxy
-        socketThread.addPacketToQueue(new RegisterServerPacket(serverAddress));
+        // Apply warmup delay only on first connection so GeyserMC is fully ready
+        if (warmupDelayMs > 0 && !everRegistered) {
+            logger.info("Warming up for " + (warmupDelayMs / 1000) + "s before registering with proxy...");
+            Thread warmupThread = new Thread(() -> {
+                try {
+                    Thread.sleep(warmupDelayMs);
+                } catch (InterruptedException e) {
+                    return;
+                }
+                if (connected) {
+                    registerServer();
+                }
+            }, "Portal-Warmup");
+            warmupThread.setDaemon(true);
+            warmupThread.start();
+        } else {
+            registerServer();
+        }
+    }
+
+    private void registerServer() {
+        socketThread.sendPacket(new RegisterServerPacket(serverAddress, false));
+        everRegistered = true;
         logger.info("Registered server '" + serverName + "' with address " + serverAddress);
     }
 
@@ -198,7 +220,7 @@ public class PortalClient {
         if (callback != null) {
             transferCallbacks.put(playerUUID, callback);
         }
-        socketThread.addPacketToQueue(new TransferRequestPacket(playerUUID, server));
+        socketThread.sendPacket(new TransferRequestPacket(playerUUID, server));
     }
 
     /**
@@ -208,7 +230,7 @@ public class PortalClient {
         if (callback != null) {
             playerInfoCallbacks.put(playerUUID, callback);
         }
-        socketThread.addPacketToQueue(new PlayerInfoRequestPacket(playerUUID));
+        socketThread.sendPacket(new PlayerInfoRequestPacket(playerUUID));
     }
 
     /**
@@ -220,7 +242,7 @@ public class PortalClient {
             serverListCallbacks.add(callback);
             if (!sendPacket) return;
         }
-        socketThread.addPacketToQueue(new ServerListRequestPacket());
+        socketThread.sendPacket(new ServerListRequestPacket());
     }
 
     /**
@@ -236,7 +258,7 @@ public class PortalClient {
             }
         }
         UUID uuid = playerUUID != null ? playerUUID : new UUID(0, 0);
-        socketThread.addPacketToQueue(new FindPlayerRequestPacket(uuid, playerName));
+        socketThread.sendPacket(new FindPlayerRequestPacket(uuid, playerName));
     }
 
     /**
