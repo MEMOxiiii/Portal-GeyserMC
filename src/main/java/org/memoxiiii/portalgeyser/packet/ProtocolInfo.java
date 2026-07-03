@@ -4,7 +4,7 @@ package org.memoxiiii.portalgeyser.packet;
  * Protocol constants for the Portal proxy socket communication.
  */
 public final class ProtocolInfo {
-    public static final int PROTOCOL_VERSION = 1;
+    public static final int PROTOCOL_VERSION = 2;
 
     public static final int AUTH_REQUEST = 0x00;
     public static final int AUTH_RESPONSE = 0x01;
@@ -19,6 +19,7 @@ public final class ProtocolInfo {
     public static final int FIND_PLAYER_RESPONSE = 0x0A;
     public static final int UPDATE_PLAYER_LATENCY = 0x0B;
     public static final int DISCONNECT_PLAYER = 0x0C;
+    public static final int SET_SERVER_DRAINING = 0x0D;
 
     // Auth response statuses
     public static final byte AUTH_SUCCESS = 0;

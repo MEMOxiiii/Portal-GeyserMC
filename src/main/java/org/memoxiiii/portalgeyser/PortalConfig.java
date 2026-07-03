@@ -17,6 +17,8 @@ public class PortalConfig {
     private String serverName = "Hub1";
     private String serverAddress = "";
     private int warmupDelay = 5;
+    private String group = "";
+    private int weight = 0;
     private boolean commandsEnabled = true;
     private boolean transferCommand = true;
     private boolean serverCommand = true;
@@ -52,6 +54,8 @@ public class PortalConfig {
                 config.serverName = values.getOrDefault("server.name", config.serverName);
                 config.serverAddress = values.getOrDefault("server.address", config.serverAddress);
                 config.warmupDelay = parseInt(values.getOrDefault("server.warmup-delay", String.valueOf(config.warmupDelay)));
+                config.group = values.getOrDefault("server.group", config.group);
+                config.weight = parseInt(values.getOrDefault("server.weight", String.valueOf(config.weight)));
                 config.commandsEnabled = parseBool(values.getOrDefault("command.enable", "true"));
                 config.transferCommand = parseBool(values.getOrDefault("command.commands.transfer", "true"));
                 config.serverCommand = parseBool(values.getOrDefault("command.commands.server", "true"));
@@ -162,6 +166,14 @@ public class PortalConfig {
 
     public int getWarmupDelay() {
         return warmupDelay;
+    }
+
+    public String getGroup() {
+        return group;
+    }
+
+    public int getWeight() {
+        return weight;
     }
 
     public boolean isCommandsEnabled() {

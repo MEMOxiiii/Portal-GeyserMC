@@ -48,6 +48,8 @@ public class PortalClient {
     private volatile boolean connected = false;
     private volatile boolean everRegistered = false;
     private int warmupDelayMs = 0;
+    private volatile String group = "";
+    private volatile long weight = 0;
 
     private final Map<UUID, TransferCallback> transferCallbacks = new ConcurrentHashMap<>();
     private final Map<UUID, PlayerInfoCallback> playerInfoCallbacks = new ConcurrentHashMap<>();
@@ -76,6 +78,26 @@ public class PortalClient {
      */
     public void setWarmupDelay(int warmupDelayMs) {
         this.warmupDelayMs = warmupDelayMs;
+    }
+
+    /**
+     * Sets the load balancer group and weight this server registers with. Weight controls how large a
+     * share of new players this server receives relative to others in the same group; 0 is treated by the
+     * proxy as 1.
+     */
+    public void setGroup(String group, long weight) {
+        this.group = group == null ? "" : group;
+        this.weight = weight;
+    }
+
+    /**
+     * Tells the proxy whether load balancers should stop routing new players to this server. Players
+     * already connected are unaffected. Typically called before a planned restart or deployment.
+     */
+    public void setDraining(boolean draining) {
+        if (socketThread != null) {
+            socketThread.sendPacket(new SetServerDrainingPacket(draining));
+        }
     }
 
     /**
@@ -165,7 +187,7 @@ public class PortalClient {
     }
 
     private void registerServer() {
-        socketThread.sendPacket(new RegisterServerPacket(serverAddress, false));
+        socketThread.sendPacket(new RegisterServerPacket(serverAddress, false, group, weight));
         everRegistered = true;
         logger.info("Registered server '" + serverName + "' with address " + serverAddress);
     }

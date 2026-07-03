@@ -10,8 +10,9 @@ import java.util.UUID;
 
 /**
  * Utility class for reading/writing Portal protocol binary data.
- * All multi-byte values are little-endian. Strings are length-prefixed with a uint32 LE length.
- * UUIDs are 16 bytes in standard (big-endian) byte order.
+ * All multi-byte values are little-endian. Strings are length-prefixed with a varuint32 length.
+ * UUIDs are 16 bytes, encoded as the most- and least-significant 8-byte halves each written in
+ * little-endian order, matching gophertunnel's protocol.Writer/Reader UUID methods on the proxy side.
  */
 public final class PacketBuffer {
     private final ByteArrayOutputStream out;
@@ -79,7 +80,7 @@ public final class PacketBuffer {
     }
 
     public void writeUUID(UUID uuid) {
-        ByteBuffer buf = ByteBuffer.allocate(16);
+        ByteBuffer buf = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
         buf.putLong(uuid.getMostSignificantBits());
         buf.putLong(uuid.getLeastSignificantBits());
         byte[] bytes = buf.array();
@@ -139,7 +140,7 @@ public final class PacketBuffer {
 
     public UUID readUUID() throws IOException {
         byte[] bytes = readBytes(16);
-        ByteBuffer buf = ByteBuffer.wrap(bytes);
+        ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
         return new UUID(buf.getLong(), buf.getLong());
     }
 

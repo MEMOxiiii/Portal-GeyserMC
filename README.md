@@ -69,6 +69,8 @@ socket:
 server:
   name: "Survival"               # Unique name for this server on the network
   address: ""                    # Leave empty to auto-detect from Geyser
+  group: ""                      # Load balancer group. Leave empty for no group
+  weight: 0                      # Share of new players relative to others in the group. 0 = 1
 
 command:
   enable: true
@@ -96,6 +98,8 @@ Start the server. You should see:
 | `socket.secret` | Shared secret for authentication | `""` |
 | `server.name` | This server's identifier on the network | `Hub1` |
 | `server.address` | Address the proxy dials to reach this server (auto-detected if empty) | `""` |
+| `server.group` | Load-balancer group this server belongs to. Leave empty for no group | `""` |
+| `server.weight` | Share of new players relative to others in the same group. `0` is treated as `1` | `0` |
 | `command.enable` | Master toggle for all commands | `true` |
 | `command.commands.*` | Toggle individual commands | `true` |
 
@@ -146,7 +150,14 @@ client.requestPlayerInfo(playerUUID, (uuid, status, xuid, address) -> {
 
 // Read cached latency
 long ms = client.getPlayerLatency(playerUUID);
+
+// Mark this server as draining (e.g. before a planned restart) so the proxy's load
+// balancers stop routing new players to it. Already-connected players are unaffected.
+client.setDraining(true);
 ```
+
+Stale local sessions are disconnected automatically when the proxy sends a `DisconnectPlayerPacket`
+ahead of transferring a player here — no action needed on your part.
 
 ### Transfer Status Codes
 

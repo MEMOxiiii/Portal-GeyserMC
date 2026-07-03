@@ -41,6 +41,7 @@ public class PortalExtension implements Extension {
                 config.getServerName(),
                 serverAddress
         );
+        client.setGroup(config.getGroup(), config.getWeight());
     }
 
     @Subscribe
